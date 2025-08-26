@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Revolt Motors Voice Bot</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 flex flex-col justify-center items-center min-h-screen gap-4 p-4">
+    <h1 class="text-2xl font-bold text-gray-800">Revolt Motors Voice Bot</h1>
+    
+    <div class="flex gap-4">
+      <button id="record" class="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-semibold">🎤 Start Recording</button>
+      <button id="test" class="px-6 py-3 bg-green-500 hover:bg-green-600 text-white rounded-lg font-semibold">🔧 Test Server</button>
+    </div>
+    
+    <div id="status" class="text-sm text-gray-600"></div>
+    <textarea id="chat" class="w-full max-w-2xl h-64 p-4 border rounded-lg resize-none" readonly placeholder="Chat messages will appear here..."></textarea>
+
+    <script>
+        const chatBox = document.getElementById('chat');
+        const recordBtn = document.getElementById('record');
+        const testBtn = document.getElementById('test');
+        const status = document.getElementById('status');
+        
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+        
+        // Test server connection
+        testBtn.onclick = async () => {
+          try {
+            status.textContent = 'Testing server...';
+            const res = await fetch('/health');
+            const data = await res.json();
+            status.textContent = '✅ Server running';
+            chatBox.value += `System: ${JSON.stringify(data)}\n`;
+          } catch (err) {
+            status.textContent = '❌ Server failed';
+            chatBox.value += `System: ${err.message}\n`;
+          }
+        };
+        
+        // Initialize recorder
+        async function initRecorder() {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            
+            mediaRecorder.ondataavailable = e => {
+              if (e.data.size > 0) audioChunks.push(e.data);
+            };
+            
+            mediaRecorder.onstop = async () => {
+              const blob = new Blob(audioChunks, { type: 'audio/webm' });
+              audioChunks = [];
+              const reader = new FileReader();
+              reader.readAsDataURL(blob);
+              reader.onloadend = async () => {
+                const base64Audio = reader.result.split(',')[1];
+                status.textContent = 'Processing audio...';
+                chatBox.value += `You (voice): 🎤 [${(blob.size/1024).toFixed(1)} KB]\n`;
+        
+                try {
+                  const res = await fetch('/voice-audio', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ audio: base64Audio })
+                  });
+                  const data = await res.json();
+                  chatBox.value += `Bot: ${data.replyText}\n`;
+                  chatBox.scrollTop = chatBox.scrollHeight;
+                  status.textContent = '✅ Audio processed';
+                } catch (err) {
+                  chatBox.value += `Error: ${err.message}\n`;
+                  status.textContent = '❌ Failed';
+                }
+              };
+            };
+            
+            status.textContent = '✅ Microphone ready';
+            recordBtn.disabled = false;
+        
+          } catch (err) {
+            console.error(err);
+            status.textContent = '❌ Microphone access denied';
+          }
+        }
+        
+        // Record button
+        recordBtn.onclick = () => {
+          if (!mediaRecorder) return;
+          if (!isRecording) {
+            audioChunks = [];
+            mediaRecorder.start();
+            isRecording = true;
+            recordBtn.textContent = '⏹ Stop Recording';
+            status.textContent = '🔴 Recording...';
+          } else {
+            mediaRecorder.stop();
+            isRecording = false;
+            recordBtn.textContent = '🎤 Start Recording';
+            status.textContent = 'Processing...';
+          }
+        };
+        
+        recordBtn.disabled = true;
+        status.textContent = 'Initializing microphone...';
+        initRecorder();
+        
+    </script>
+</body>
+</html>
